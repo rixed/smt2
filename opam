@@ -1,0 +1,16 @@
+opam-version: "2.0"
+name: "smt2"
+version: "0.0.0"
+synopsis: "SMT2 manipulation library"
+maintainer: "rixed-opam@happyleptic.org"
+authors: "rixed-opam@happyleptic.org"
+license: "AGPL-3.0-only"
+homepage: "https://github.com/rixed/smt2"
+bug-reports: "https://github.com/rixed/smt2/issues"
+build: make
+install: [make "install"]
+remove: [make "uninstall"]
+dev-repo: "git+https://github.com/rixed/smt2.git"
+url {
+  src: "file:///home/rixed/share/src/smt2"
+}

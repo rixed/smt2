@@ -1,0 +1,11 @@
+.depend
+*.cmi
+*.cmx
+*.cmxa
+*.o
+*.a
+*.annot
+Smt2Lexer.ml
+Smt2Parser.ml
+Smt2Parser.mli
+smt2-tool
