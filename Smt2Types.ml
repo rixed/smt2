@@ -1,9 +1,10 @@
 type symbol = string
 type keyword = string
-type numeral = string
+type numeral = int
+type decimal = float
 
 let symbol_of_string s = s
-let numeral_of_int n = string_of_int n
+let numeral_of_int n = n
 let keyword_of_string s = s
 
 (* Replace newlines with something inocuous: *)
@@ -39,7 +40,28 @@ let print_bool oc b =
   Format.fprintf oc (if b then "true" else "false")
 
 let print_numeral oc n =
-  Format.fprintf oc "%s" n
+  Format.fprintf oc "%d" n
+
+let print_decimal oc f =
+  Format.fprintf oc "%f" f
+
+let print_hexadecimal oc n =
+  Format.fprintf oc "#x%x" n
+
+let rec bits_of_int n =
+  let rec loop l n =
+    if n = 0 then List.rev l else
+    let l' = (if n land 1 = 0 then 0 else 1) :: l in
+    loop l' (n lsr 1) in
+  loop [] n
+
+let print_binary oc n =
+  let bits = bits_of_int n in
+  let bits = if bits = [] then [ 0 ] else bits in
+  Format.pp_print_string oc "#b" ;
+  List.iter (fun b ->
+    Format.pp_print_char oc (if b = 0 then '0' else '1')
+  ) bits
 
 (* When the first of the pair is a keyword: *)
 let print_pair p2 oc k v =
@@ -47,156 +69,207 @@ let print_pair p2 oc k v =
     print_keyword k
     p2 v
 
-module SpecialConstant = struct
-  type t =
-    Numeral of numeral | Decimal of string | Hexadecimal of string |
-    Binary of string | String of string
+type constant =
+  Numeral of numeral | Decimal of decimal | Hexadecimal of int |
+  Binary of int | String of string
 
-  let numeral_of_int v = Numeral (string_of_int v)
-  let decimal_of_int v = Decimal (string_of_int v)
-  let decimal_of_float v = Decimal (Printf.sprintf "%f" v)
+module Constant = struct
+  type t = constant
+
+  let numeral_of_int v = Numeral v
+  let decimal_of_int v = Decimal (float_of_int v)
+  let decimal_of_float v = Decimal v
+
+  let to_int = function
+    | Numeral n | Hexadecimal n | Binary n -> n
+    | _ -> invalid_arg "Constant.to_int"
 
   let print oc = function
-      Numeral s -> print_numeral oc s
-    | Decimal s -> Format.fprintf oc "%s" s
-    | Hexadecimal s -> Format.fprintf oc "#x%s" s
-    | Binary s -> Format.fprintf oc "#b%s" s
+      Numeral v -> print_numeral oc v
+    | Decimal f -> print_decimal oc f
+    | Hexadecimal n -> print_hexadecimal oc n
+    | Binary n -> print_binary oc n
     | String s -> print_string oc s
 end
 
+type s_expr =
+    Constant of constant
+  | Symbol of symbol
+  | Keyword of keyword
+  | List of s_expr list
+  | Comment of string (* Not parsed but pretty printed *)
+
 module SExpr = struct
-  type t =
-      SpecConstant of SpecialConstant.t
-    | Symbol of symbol
-    | Keyword of keyword
-    | List of t list
-    | Comment of string (* Not parsed but pretty printed *)
+  type t = s_expr
 
   let comment s = Comment s
 
   let rec print oc = function
-      SpecConstant s -> SpecialConstant.print oc s
+      Constant s -> Constant.print oc s
     | Symbol s -> Format.fprintf oc "%a" print_symbol s
     | Keyword k -> Format.fprintf oc "%a" print_keyword k
     | List ss -> print_list print oc ss
     | Comment s -> Format.fprintf oc "@[<h>; %s@]@\n" (strip_newlines s)
 end
 
+type index = NumericIndex of numeral | SymbolicIndex of symbol
+type identifier =
+    Identifier of symbol
+  | IndexedIdentifier of symbol * index list (* non empty *)
+
 module Identifier = struct
-  type index = Numeral of string | Symbol of symbol
-  type t = { symbol : symbol ; indices : index list }
+  type t = identifier
+
+  let of_string s = Identifier s
 
   let print_index oc = function
-      Numeral s -> Format.fprintf oc "%s" s
-    | Symbol s  -> print_symbol oc s
+      NumericIndex i -> Format.fprintf oc "%d" i
+    | SymbolicIndex s  -> print_symbol oc s
 
   let print oc = function
-      { symbol ; indices = [] } ->
-        Format.fprintf oc "%s" symbol
-    | { symbol ; indices } ->
+      Identifier name ->
+        Format.fprintf oc "%s" name
+    | IndexedIdentifier (name, indices) ->
         Format.fprintf oc "@[<hov 2>(_@ %s@ %a)@]"
-          symbol
+          name
           (print_list_content print_index) indices
 end
 
+type attribute_value =
+    ConstantValue of constant
+  | SymbolicValue of symbol
+  | SExprValue of s_expr list
+
+type attribute = keyword * attribute_value option
+
 module Attribute = struct
-  type value =
-    SpecConstant of SpecialConstant.t | Symbol of symbol | SExprs of SExpr.t list
-  type t = { keyword : keyword ; value : value option }
+  type t = attribute
 
   let print_value oc = function
-    | SpecConstant s -> SpecialConstant.print oc s
-    | Symbol s -> print_symbol oc s
-    | SExprs l -> print_list SExpr.print oc l
+    | ConstantValue s -> Constant.print oc s
+    | SymbolicValue s -> print_symbol oc s
+    | SExprValue l -> print_list SExpr.print oc l
 
   let print oc = function
-      { keyword ; value = None } ->
+      keyword, None ->
         Format.fprintf oc ":%s" keyword
-    | { keyword ; value = Some v } ->
+    | keyword, Some v ->
         Format.fprintf oc ":%s@ %a" keyword print_value v
 end
 
+type sort =
+    NonParametricSort of identifier
+  | ParametricSort of identifier * sort list (* parameters *)
+
 module Sort = struct
-  type t = { identifier : Identifier.t ; sorts : t list }
+  type t = sort
+
+  let of_string s =
+    NonParametricSort (Identifier.of_string s)
 
   let rec print oc = function
-      { identifier ; sorts = [] } ->
-        Identifier.print oc identifier
-    | { identifier ; sorts } ->
+      NonParametricSort id ->
+        Identifier.print oc id
+    | ParametricSort (id, params) ->
         Format.fprintf oc "@[(%a@ %a)@["
-          Identifier.print identifier
-          (print_list_content print) sorts
+          Identifier.print id
+          (print_list_content print) params
 end
 
-module Term = struct
-  type t =
-      SpecConstant of SpecialConstant.t
-    | QualIdentifier of identifier
-    | Apply of { identifier : identifier ; terms : t list }
-    | Let of { bindings : binding list ; term : t }
-    | ForAll of { vars : sorted_var list ; term : t }
-    | Exists of { vars : sorted_var list ; term : t }
-    | Match of { term : t ; cases : match_case list }
-    | Annotation of { term : t ; attributes : Attribute.t list }
-  and identifier = { identifier : Identifier.t ; sort_opt : Sort.t option }
-  and binding = { symbol : symbol ; value : t }
-  and sorted_var = { name : symbol ; sort : Sort.t }
-  and match_case = { pattern : symbol list ; term : t }
+type qual_identifier = identifier * (* as... *) Sort.t option
+type sorted_var = symbol * sort
+type pattern = symbol list
+type match_case = pattern * term
+and binding = symbol * term
+and term =
+    ConstantTerm of constant
+  | QualIdentifier of qual_identifier
+  | Apply of qual_identifier * term list
+  | Let of binding list * term
+  | ForAll of sorted_var list * term
+  | Exists of sorted_var list * term
+  | Match of term * match_case list
+  | Annotation of term * attribute list
 
-  let print_identifier oc = function
-      { identifier ; sort_opt = None } ->
-        Identifier.print oc identifier
-    | { identifier ; sort_opt = Some sort } ->
+module Term = struct
+  type t = term
+
+  let qual_identifier_of_string s = s, None
+
+  let print_qual_identifier oc = function
+      id, None ->
+        Identifier.print oc id
+    | id, Some sort ->
         Format.fprintf oc "@[(as@ %a@ %a)@]"
-          Identifier.print identifier
+          Identifier.print id
           Sort.print sort
 
-  let print_sorted_var oc v =
+  let print_sorted_var oc (name, sort) =
     Format.fprintf oc "@[(%a@ %a)@]"
-      print_symbol v.name
-      Sort.print v.sort
+      print_symbol name
+      Sort.print sort
 
-  let rec print_binding oc b =
+  let rec print_binding oc (name, value) =
     Format.fprintf oc "@[(%a@ %a)@]"
-      print_symbol b.symbol
-      print b.value
+      print_symbol name
+      print value
 
   and print_pattern oc = function
       [ x ] -> print_symbol oc x
     | l -> print_list print_symbol oc l
 
-  and print_case oc c =
+  and print_case oc (pattern, term) =
     Format.fprintf oc "@[(%a@ %a)@]"
-      print_pattern c.pattern
-      print c.term
+      print_pattern pattern
+      print term
 
   and print oc = function
-      SpecConstant s -> SpecialConstant.print oc s
-    | QualIdentifier i -> print_identifier oc i
-    | Apply { identifier ; terms } ->
+      ConstantTerm s -> Constant.print oc s
+    | QualIdentifier i -> print_qual_identifier oc i
+    | Apply (id, terms) ->
         Format.fprintf oc "@[(%a@ %a)@]"
-          print_identifier identifier
+          print_qual_identifier id
           (print_list print) terms
-    | Let { bindings ; term } ->
+    | Let (bindings, term) ->
         Format.fprintf oc "@[(let@ %a@ %a)@]"
           (print_list print_binding) bindings
           print term
-    | ForAll { vars ; term } ->
+    | ForAll (vars, term) ->
         Format.fprintf oc "@[(forall@ %a@ %a)@]"
           (print_list print_sorted_var) vars
           print term
-    | Exists { vars ; term } ->
+    | Exists (vars, term) ->
         Format.fprintf oc "@[(exists@ %a@ %a)@]"
           (print_list print_sorted_var) vars
           print term
-    | Match { term ; cases } ->
+    | Match (term, cases) ->
         Format.fprintf oc "@[(match@ %a@ %a)@]"
           print term
           (print_list print_case) cases
-    | Annotation { term ; attributes } ->
+    | Annotation (term, attributes) ->
         Format.fprintf oc "@[(!@ %a@ %a)@]"
           print term
           (print_list Attribute.print) attributes
+
+  let to_bool = function
+    | QualIdentifier (Identifier "true", None) ->
+        true
+    | QualIdentifier (Identifier "false", None) ->
+        false
+    | x ->
+        Format.(fprintf str_formatter "Bad term when expecting boolean: %a"
+          print x) ;
+        Format.flush_str_formatter () |> failwith
+
+  let rec to_int = function
+    | ConstantTerm c ->
+        Constant.to_int c
+    | Apply ((Identifier "-", None), [ term ]) ->
+        ~- (to_int term)
+    | x ->
+        Format.(fprintf str_formatter "Bad term when expecting integer: %a"
+          print x) ;
+        Format.flush_str_formatter () |> failwith
 end
 
 module Command = struct
@@ -204,7 +277,7 @@ module Command = struct
     | StringOption of keyword * string
     | BoolOption of keyword * bool
     | NumOption of keyword * numeral
-    | AttributeOption of Attribute.t
+    | AttributeOption of attribute
 
   type sort_dec = { name : symbol ; arity : numeral }
 
@@ -218,7 +291,7 @@ module Command = struct
         { parameters : symbol list ; constructors : constructor_dec list }
 
   type function_dec =
-    { name : symbol ; inputs : Term.sorted_var list ; output : Sort.t }
+    { name : symbol ; inputs : sorted_var list ; output : Sort.t }
 
   type function_def = { dec : function_dec ; body : Term.t }
 
@@ -256,7 +329,7 @@ module Command = struct
     | Push of numeral
     | Reset
     | ResetAssertions
-    | SetInfo of Attribute.t
+    | SetInfo of attribute
     | SetLogic of symbol
     | SetOption of option
 
@@ -409,7 +482,7 @@ module Response = struct
   type info =
       StringResp of keyword * string
     | NumResp of keyword * numeral
-    | AttributeResp of Attribute.t
+    | AttributeResp of attribute
 
   type sat = Sat | Unsat | Unknown
 
@@ -421,7 +494,7 @@ module Response = struct
     | GetAssignment of (symbol * bool) list
     | GetInfo of info list
     | GetModel of model list
-    | GetOption of Attribute.value
+    | GetOption of attribute_value
     | GetProof of SExpr.t
     | GetUnsatAssumptions of symbol list
     | GetUnsatCore of symbol list

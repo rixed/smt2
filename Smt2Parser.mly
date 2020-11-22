@@ -15,11 +15,13 @@ open Smt2Types
 %token DEFINE_FUN DEFINE_FUN_REC DEFINE_FUNS_REC DEFINE_SORT ECHO EXIT
 %token GET_ASSERTIONS GET_ASSIGNMENT GET_INFO GET_MODEL GET_OPTION GET_PROOF
 %token GET_UNSAT_ASSUMPTIONS GET_UNSAT_CORE GET_VALUE POP PUSH RESET
-%token RESET_ASSERTIONS SET_INFO SET_LOGIC SET_OPTION NOT
+%token RESET_ASSERTIONS SET_INFO SET_LOGIC SET_OPTION NOT MODEL
 
 %token KwTheories
-%token <string> Numeral Decimal Hexadecimal Binary String
-%token <Smt2Types.SpecialConstant.t> SpecConstant
+%token <int> Numeral Hexadecimal Binary
+%token <float > Decimal
+%token <string> String
+%token <Smt2Types.Constant.t> SpecConstant
 %token <string> Symbol
 %token <string> Keyword
 %token <Smt2Types.SExpr.t> List
@@ -29,26 +31,94 @@ open Smt2Types
 
 %start responses
 %type <Smt2Types.Script.responses> responses
+
+/* It is actually not possible to parse a response with no knowledge of what
+ * the command was (for instance: 'sat' could be CheckSat, if answering
+ * `(check-sat)`, or a single symbol after `(get-proof)`. */
+%start check_sat_response
+%start echo_response
+%start get_assertions_response
+%start get_assignment_response
+%start get_info_response
+%start get_model_response
+%start get_option_response
+%start get_proof_response
+%start get_unsat_assumptions_response
+%start get_unsat_core_response
+%start get_value_response
+%start general_response
+%type <Smt2Types.Response.t> check_sat_response echo_response get_assertions_response get_assignment_response get_info_response get_model_response get_option_response get_proof_response get_unsat_assumptions_response get_unsat_core_response get_value_response general_response
+
 %%
+
+/*
+ * Symbols
+ */
+
+symbol:
+  | Symbol                { $1 }
+  /* Those are not reserved words: */
+  | ERROR                 { "error" }
+  | FALSE                 { "false" }
+  | LOGIC                 { "logic" }
+  | SAT                   { "sat" }
+  | SUCCESS               { "success" }
+  | THEORY                { "theory" }
+  | TRUE                  { "true" }
+  | UNSUPPORTED           { "unsupported" }
+  | UNSAT                 { "unsat" }
+  | ASSERT                { "assert" }
+  | CHECK_SAT             { "check-sat" }
+  | CHECK_SAT_ASSUMING    { "check-sat-assuming" }
+  | DECLARE_CONST         { "declare-const" }
+  | DECLARE_DATATYPE      { "declare-datatype" }
+  | DECLARE_DATATYPES     { "declare-datatypes" }
+  | DECLARE_FUN           { "declare-fun" }
+  | DECLARE_SORT          { "declare-sort" }
+  | DEFINE_FUN            { "define-fun" }
+  | DEFINE_FUN_REC        { "define-fun-rec" }
+  | DEFINE_FUNS_REC       { "define-funs-rec" }
+  | DEFINE_SORT           { "define-sort" }
+  | ECHO                  { "echo" }
+  | EXIT                  { "exit" }
+  | GET_ASSERTIONS        { "get-assertions" }
+  | GET_ASSIGNMENT        { "get-assignment" }
+  | GET_INFO              { "get-info" }
+  | GET_MODEL             { "get-model" }
+  | GET_OPTION            { "get-option" }
+  | GET_PROOF             { "get-proof" }
+  | GET_UNSAT_ASSUMPTIONS { "get-unsat-assumptions" }
+  | GET_UNSAT_CORE        { "get-unsat-core" }
+  | GET_VALUE             { "get-value" }
+  | POP                   { "pop" }
+  | PUSH                  { "push" }
+  | RESET                 { "reset" }
+  | RESET_ASSERTIONS      { "reset-assertions" }
+  | SET_INFO              { "set-info" }
+  | SET_LOGIC             { "set-logic" }
+  | SET_OPTION            { "set-option" }
+  | NOT                   { "not" }
+  | MODEL                 { "model" }
+;
 
 /*
  * S-Expressions
  */
 
 s_expr:
-  | spec_constant          { SExpr.SpecConstant $1 }
-  | Symbol                 { SExpr.Symbol $1 }
-  | Keyword                { SExpr.Keyword $1 }
-  | OPEN CLOSE             { SExpr.List [] }
-  | OPEN s_expr_list CLOSE { SExpr.List $2 }
+  | spec_constant          { Constant $1 }
+  | symbol                 { Symbol $1 }
+  | Keyword                { Keyword $1 }
+  | OPEN CLOSE             { List [] }
+  | OPEN s_expr_list CLOSE { List $2 }
 ;
 
 spec_constant:
-  | Numeral     { SpecialConstant.Numeral $1 }
-  | Decimal     { SpecialConstant.Decimal $1 }
-  | Hexadecimal { SpecialConstant.Hexadecimal $1 }
-  | Binary      { SpecialConstant.Binary $1 }
-  | String      { SpecialConstant.String $1 }
+  | Numeral     { Numeral $1 }
+  | Decimal     { Decimal $1 }
+  | Hexadecimal { Hexadecimal $1 }
+  | Binary      { Binary $1 }
+  | String      { String $1 }
 ;
 
 s_expr_list:
@@ -62,14 +132,14 @@ s_expr_list:
  */
 
 identifier:
-  | Symbol { Identifier.{ symbol = $1 ; indices = [] } }
-  | OPEN UNDERSCORE Symbol index_list CLOSE
-              { Identifier.{ symbol = $3 ; indices = $4 } }
+  | symbol { Identifier $1}
+  | OPEN UNDERSCORE symbol index_list CLOSE
+           { IndexedIdentifier ($3, $4) }
 ;
 
 index:
-  | Numeral { Identifier.Numeral $1 }
-  | Symbol  { Identifier.Symbol $1 }
+  | Numeral { NumericIndex $1 }
+  | symbol  { SymbolicIndex $1 }
 ;
 
 index_list:
@@ -83,8 +153,8 @@ index_list:
  */
 
 attribute:
-  | Keyword                 { Attribute.{ keyword = $1 ; value = None } }
-  | Keyword attribute_value { Attribute.{ keyword = $1 ; value = Some $2 } }
+  | Keyword                 { $1, None }
+  | Keyword attribute_value { $1, Some $2 }
 ;
 
 attribute_list:
@@ -93,10 +163,10 @@ attribute_list:
 ;
 
 attribute_value:
-  | spec_constant  { Attribute.SpecConstant $1 }
-  | Symbol      { Attribute.Symbol $1 }
-  | OPEN CLOSE { Attribute.SExprs [] }
-  | OPEN s_expr_list CLOSE { Attribute.SExprs $2 }
+  | spec_constant          { ConstantValue $1 }
+  | symbol                 { SymbolicValue $1 }
+  | OPEN CLOSE             { SExprValue [] }
+  | OPEN s_expr_list CLOSE { SExprValue $2 }
 ;
 
 
@@ -105,9 +175,8 @@ attribute_value:
  */
 
 sort:
-  | identifier { Sort.{ identifier = $1 ; sorts = [] } }
-  | OPEN identifier sort_list CLOSE
-               { Sort.{ identifier = $2 ; sorts = $3 } }
+  | identifier                      { NonParametricSort $1 }
+  | OPEN identifier sort_list CLOSE { ParametricSort ($2, $3) }
 ;
 
 sort_list:
@@ -126,17 +195,16 @@ sort_sexpr:
  */
 
 qual_identifier:
-  | identifier { Term.{ identifier = $1 ; sort_opt = None } }
-  | OPEN AS identifier sort CLOSE
-               { Term.{ identifier = $3 ; sort_opt = Some $4 } }
+  | identifier                    { $1, None }
+  | OPEN AS identifier sort CLOSE { $3, Some $4 }
 ;
 
 var_binding:
-  | OPEN Symbol term CLOSE { Term.{ symbol = $2 ; value = $3 } }
+  | OPEN symbol term CLOSE { $2, $3 }
 ;
 
 sorted_var:
-  | OPEN Symbol sort CLOSE { Term.{ name = $2 ; sort = $3 } }
+  | OPEN symbol sort CLOSE { $2, $3 }
 ;
 
 sorted_var_list:
@@ -150,13 +218,13 @@ sorted_var_sexpr:
 ;
 
 pattern:
-  | Symbol                        { [ $1 ] }
-  | OPEN Symbol symbol_list CLOSE { $2 :: $3 }
+  | symbol                        { [ $1 ] }
+  | OPEN symbol symbol_list CLOSE { $2 :: $3 }
 ;
 
 symbol_list:
-  | Symbol symbol_list { $1 :: $2 }
-  | Symbol             { [ $1 ] }
+  | symbol symbol_list { $1 :: $2 }
+  | symbol             { [ $1 ] }
 ;
 
 symbol_sexpr:
@@ -165,7 +233,7 @@ symbol_sexpr:
 ;
 
 match_case:
-  | OPEN pattern term CLOSE { Term.{ pattern = $2 ; term = $3 } }
+  | OPEN pattern term CLOSE { $2, $3 }
 ;
 
 match_case_list:
@@ -173,20 +241,14 @@ match_case_list:
   | match_case                 { [ $1 ] }
 
 term:
-  | spec_constant   { Term.SpecConstant $1 }
-  | qual_identifier { Term.QualIdentifier $1 }
-  | OPEN qual_identifier term_list CLOSE
-                    { Term.Apply { identifier = $2 ; terms = $3 } }
-  | OPEN LET OPEN var_binding_list CLOSE term CLOSE
-                    { Term.Let { bindings = $4 ; term = $6 } }
-  | OPEN FORALL OPEN sorted_var_list CLOSE term CLOSE
-                    { Term.ForAll { vars = $4 ; term = $6 } }
-  | OPEN EXISTS OPEN sorted_var_list CLOSE term CLOSE
-                    { Term.Exists { vars = $4 ; term = $6 } }
-  | OPEN MATCH term OPEN match_case_list CLOSE CLOSE
-                    { Term.Match { term = $3 ; cases = $5 } }
-  | OPEN EXCLAMATION term attribute_list CLOSE
-                    { Term.Annotation { term = $3 ; attributes = $4 } }
+  | spec_constant                                     { ConstantTerm $1 }
+  | qual_identifier                                   { QualIdentifier $1 }
+  | OPEN qual_identifier term_list CLOSE              { Apply ($2, $3) }
+  | OPEN LET OPEN var_binding_list CLOSE term CLOSE   { Let ($4, $6) }
+  | OPEN FORALL OPEN sorted_var_list CLOSE term CLOSE { ForAll ($4, $6) }
+  | OPEN EXISTS OPEN sorted_var_list CLOSE term CLOSE { Exists ($4, $6) }
+  | OPEN MATCH term OPEN match_case_list CLOSE CLOSE  { Match ($3, $5) }
+  | OPEN EXCLAMATION term attribute_list CLOSE        { Annotation ($3, $4) }
 ;
 
 term_list:
@@ -210,7 +272,7 @@ var_binding_list:
  */
 
 sort_dec:
-  | OPEN Symbol Numeral CLOSE { Command.{ name = $2 ; arity = $3 } }
+  | OPEN symbol Numeral CLOSE { Command.{ name = $2 ; arity = $3 } }
 ;
 
 sort_dec_list:
@@ -219,7 +281,7 @@ sort_dec_list:
 ;
 
 selector_dec:
-  | OPEN Symbol sort CLOSE { Command.{ name = $2 ; sort = $3 } }
+  | OPEN symbol sort CLOSE { Command.{ name = $2 ; sort = $3 } }
 ;
 
 selector_dec_list:
@@ -228,8 +290,8 @@ selector_dec_list:
 ;
 
 constructor_dec:
-  | OPEN Symbol CLOSE { Command.{ name = $2 ; selectors = [] } }
-  | OPEN Symbol selector_dec_list CLOSE
+  | OPEN symbol CLOSE { Command.{ name = $2 ; selectors = [] } }
+  | OPEN symbol selector_dec_list CLOSE
                       { Command.{ name = $2 ; selectors = $3 } }
 ;
 
@@ -251,7 +313,7 @@ datatype_dec_list:
 ;
 
 function_dec:
-  | OPEN Symbol sorted_var_sexpr sort CLOSE
+  | OPEN symbol sorted_var_sexpr sort CLOSE
       { Command.{ name = $2 ; inputs = $3 ; output = $4 } }
 ;
 
@@ -261,14 +323,14 @@ function_dec_list:
 ;
 
 function_def:
-  | Symbol sorted_var_sexpr sort term
+  | symbol sorted_var_sexpr sort term
       { Command.{ dec = { name = $1 ; inputs = $2 ; output = $3 } ;
                   body = $4 } }
 ;
 
 prop_literal:
-  | Symbol                { Command.True $1 }
-  | OPEN NOT Symbol CLOSE { Command.False $3 }
+  | symbol                { Command.True $1 }
+  | OPEN NOT symbol CLOSE { Command.False $3 }
 ;
 
 prop_literal_list:
@@ -300,16 +362,16 @@ command:
       { Command.CheckSat }
   | OPEN CHECK_SAT_ASSUMING prop_literal_sexpr CLOSE
       { Command.CheckSatAssuming $3 }
-  | OPEN DECLARE_CONST Symbol sort CLOSE
+  | OPEN DECLARE_CONST symbol sort CLOSE
       { Command.(DeclareConst { name = $3 ; sort = $4 }) }
-  | OPEN DECLARE_DATATYPE Symbol datatype_dec CLOSE
+  | OPEN DECLARE_DATATYPE symbol datatype_dec CLOSE
       { Command.(DeclareDataType { name = $3 ; datatype = $4 }) }
   | OPEN DECLARE_DATATYPES OPEN sort_dec_list CLOSE
                            OPEN datatype_dec_list CLOSE CLOSE
       { Command.(DeclareDataTypes { sorts = $4 ; datatypes = $7 }) }
-  | OPEN DECLARE_FUN Symbol sort_sexpr sort CLOSE
+  | OPEN DECLARE_FUN symbol sort_sexpr sort CLOSE
       { Command.(DeclareFun { name = $3 ; inputs = $4 ; output = $5 }) }
-  | OPEN DECLARE_SORT Symbol Numeral CLOSE
+  | OPEN DECLARE_SORT symbol Numeral CLOSE
       { Command.(DeclareSort { name = $3 ; arity = $4 }) }
   | OPEN DEFINE_FUN function_def CLOSE
       { Command.(DefineFun { recurs = false ; def = $3 }) }
@@ -318,7 +380,7 @@ command:
   | OPEN DEFINE_FUNS_REC OPEN function_dec_list CLOSE
                          OPEN term_list CLOSE CLOSE
       { Command.(DefineFuns { decls = $4 ; bodies = $7 }) }
-  | OPEN DEFINE_SORT Symbol symbol_sexpr sort CLOSE
+  | OPEN DEFINE_SORT symbol symbol_sexpr sort CLOSE
       { Command.(DefineSort { name = $3 ; params = $4 ; sort = $5 }) }
   | OPEN ECHO String CLOSE
       { Command.Echo $3 }
@@ -350,7 +412,7 @@ command:
       { Command.ResetAssertions }
   | OPEN SET_INFO attribute CLOSE
       { Command.SetInfo $3 }
-  | OPEN SET_LOGIC Symbol CLOSE
+  | OPEN SET_LOGIC symbol CLOSE
       { Command.SetLogic $3 }
   | OPEN SET_OPTION option CLOSE
       { Command.SetOption $3 }
@@ -400,7 +462,7 @@ valuation_pair_list:
 ;
 
 t_valuation_pair:
-  | OPEN Symbol b_value CLOSE { $2, $3 }
+  | OPEN symbol b_value CLOSE { $2, $3 }
 ;
 
 t_valuation_pair_list:
@@ -409,70 +471,68 @@ t_valuation_pair_list:
 ;
 
 check_sat_response:
-  | SAT     { Response.Sat }
-  | UNSAT   { Response.Unsat }
-  | UNKNOWN { Response.Unknown }
+  | SAT              { Response.CheckSat Sat }
+  | UNSAT            { Response.CheckSat Unsat }
+  | UNKNOWN          { Response.CheckSat Unknown }
+  | general_response { $1 }
 ;
 
 echo_response:
-  | String  { $1 }
+  | String           { Response.Echo $1 }
+  | general_response { $1 }
 ;
 
 get_assertions_response:
-  | term_sexpr { $1 }
+  | term_sexpr       { Response.GetAssertions $1 }
+  | general_response { $1 }
 ;
 
 get_assignment_response:
-  | OPEN CLOSE                       { [] }
-  | OPEN t_valuation_pair_list CLOSE { $2 }
+  | OPEN CLOSE                       { Response.GetAssignment [] }
+  | OPEN t_valuation_pair_list CLOSE { Response.GetAssignment $2 }
+  | general_response                 { $1 }
 ;
 
 get_info_response:
-  | OPEN info_response_list CLOSE { $2 }
+  | OPEN info_response_list CLOSE { Response.GetInfo $2 }
+  | general_response              { $1 }
 ;
 
 get_model_response:
-  | OPEN CLOSE                     { [] }
-  | OPEN model_response_list CLOSE { $2 }
+  | OPEN CLOSE                           { Response.GetModel [] }
+  | OPEN MODEL CLOSE                     { Response.GetModel [] }
+  | OPEN model_response_list CLOSE       { Response.GetModel $2 }
+  | OPEN MODEL model_response_list CLOSE { Response.GetModel $3 }
+  | general_response                     { $1 }
 ;
 
 get_option_response:
-  | attribute_value { $1 }
+  | attribute_value  { Response.GetOption $1 }
+  | general_response { $1 }
 ;
 
 get_proof_response:
-  | s_expr { $1 }
+  | s_expr           { Response.GetProof $1 }
+  | general_response { $1 }
 ;
 
 get_unsat_assumptions_response:
-  | symbol_sexpr { $1 }
+  | symbol_sexpr     { Response.GetUnsatAssumptions $1 }
+  | general_response { $1 }
 ;
 
 get_unsat_core_response:
-  | symbol_sexpr { $1 }
+  | symbol_sexpr     { Response.GetUnsatCore $1 }
+  | general_response { $1 }
 ;
 
 get_value_response:
-  | OPEN valuation_pair_list CLOSE { $2 }
-;
-
-specific_success_response:
-  | check_sat_response             { Response.CheckSat $1 }
-  | echo_response                  { Response.Echo $1 }
-  | get_assertions_response        { Response.GetAssertions $1 }
-  | get_assignment_response        { Response.GetAssignment $1 }
-  | get_info_response              { Response.GetInfo $1 }
-  | get_model_response             { Response.GetModel $1 }
-  | get_option_response            { Response.GetOption $1 }
-  | get_proof_response             { Response.GetProof $1 }
-  | get_unsat_assumptions_response { Response.GetUnsatAssumptions $1 }
-  | get_unsat_core_response        { Response.GetUnsatCore $1 }
-  | get_value_response             { Response.GetValue $1 }
+  | OPEN valuation_pair_list CLOSE { Response.GetValue $2 }
+  | general_response               { $1 }
 ;
 
 general_response:
   | SUCCESS                   { Response.Success }
-  | specific_success_response { $1 }
   | UNSUPPORTED               { Response.Unsupported }
   | OPEN ERROR String CLOSE   { Response.Error $3 }
 ;

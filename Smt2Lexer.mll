@@ -1,5 +1,22 @@
 {
 open Smt2Parser
+
+let int_of_bits s =
+  let rec loop n i =
+    if i >= String.length s then n else
+    let bit = if s.[i] = '0' then 0 else 1 in
+    loop (n lsl 1 + bit) (i + 1) in
+  loop 0 0
+
+let int_of_hex s =
+  let rec loop n i =
+    if i >= String.length s then n else
+    let digit =
+      if s.[i] >= '0' && s.[i] <= '9' then Char.code s.[i] - Char.code '0' else
+      if s.[i] >= 'a' && s.[i] <= 'f' then Char.code s.[i] - Char.code 'a' + 10 else
+      Char.code s.[i] - Char.code 'A' + 10 in
+    loop (n lsl 4 + digit) (i + 1) in
+  loop 0 0
 }
 
 let comment = ';' (_ # '\n') * '\n'
@@ -24,12 +41,12 @@ let keyword = ':' (simple_symbol as s)
 rule token = parse
   | white_space_char { token lexbuf }
   | comment { token lexbuf }
-  | numeral as s { Numeral s }
-  | decimal as s { Decimal s }
-  | hexadecimal { Hexadecimal s }
-  | binary { Binary s }
+  | numeral as s { Numeral (int_of_string s) }
+  | decimal as s { Decimal (float_of_string s) }
+  | hexadecimal { Hexadecimal (int_of_hex s)  }
+  | binary { Binary (int_of_bits s) }
   | string { String s }
-  (* Test for reserved words *before* symbols *)
+  (* Reserved words: *)
   | "BINARY" { BINARY }
   | "DECIMAL" { DECIMAL }
   | "HEXADECIMAL" { HEXADECIMAL }
@@ -43,13 +60,8 @@ rule token = parse
   | "forall" { FORALL }
   | "match" { MATCH }
   | "par" { PAR }
-  | symbol { Symbol s }
   | ":theories" { KwTheories }
-  | keyword { Keyword s }
-  | '(' { OPEN }
-  | ')' { CLOSE }
-  | eof { EOF }
-  (* predefined symbols *)
+  (* Predefined symbols: *)
   | "error" { ERROR }
   | "false" { FALSE }
   | "logic" { LOGIC }
@@ -59,7 +71,7 @@ rule token = parse
   | "true" { TRUE }
   | "unsupported" { UNSUPPORTED }
   | "unsat" { UNSAT }
-  (* Command names *)
+  (* Command names: *)
   | "assert" { ASSERT }
   | "check-sat" { CHECK_SAT }
   | "check-sat-assuming" { CHECK_SAT_ASSUMING }
@@ -92,3 +104,11 @@ rule token = parse
   | "set-option" { SET_OPTION }
   (* Felt through the cracks: *)
   | "not" { NOT }
+  (* Output by Z3 and CVC4: *)
+  | "model" { MODEL }
+  (* Generic symbols / keywords: *)
+  | symbol { Symbol s }
+  | keyword { Keyword s }
+  | '(' { OPEN }
+  | ')' { CLOSE }
+  | eof { EOF }
