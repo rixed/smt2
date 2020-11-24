@@ -11,6 +11,3 @@ build: make
 install: [make "install"]
 remove: [make "uninstall"]
 dev-repo: "git+https://github.com/rixed/smt2.git"
-url {
-  src: "file:///home/rixed/share/src/smt2"
-}
