@@ -2,12 +2,19 @@
 
 let main =
   let debug = Array.mem "--debug" Sys.argv in
-  let is_resp = Array.mem "--resp" Sys.argv in
+  let is_model = Array.mem "--model" Sys.argv in
   ignore (Parsing.set_trace debug) ;
   let lexbuf = Lexing.from_channel stdin in
-  if is_resp then
-    let resps = Smt2Parser.responses Smt2Lexer.token lexbuf in
-    Format.printf "%a@\n" Smt2Types.Script.print_responses resps
-  else
-    let comms = Smt2Parser.commands Smt2Lexer.token lexbuf in
-    Format.printf "%a@\n" Smt2Types.Script.print_commands comms
+  try
+    if is_model then
+      let resps = Smt2Parser.get_model_response Smt2Lexer.token lexbuf in
+      Format.printf "%a@\n" Smt2Types.Response.print resps
+    else
+      let comms = Smt2Parser.commands Smt2Lexer.token lexbuf in
+      Format.printf "%a@\n" Smt2Types.Script.print_commands comms
+  with (Failure _ | Parsing.Parse_error) as e ->
+    let pos = lexbuf.Lexing.lex_curr_p in
+    Format.eprintf "At line %d col %d: %s@."
+      pos.Lexing.pos_lnum
+      (pos.pos_cnum - pos.pos_bol + 1)
+      (Printexc.to_string e)
