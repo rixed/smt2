@@ -32,7 +32,7 @@ let string = '"' (((printable_char # '"') | white_space_char | '"' '"')* as s) '
 let symchar =
   [ '~' '!' '@' '$' '%' '^' '&' '*' '_' '-' '+' '=' '<' '>' '.' '?' '/' ]
 let simple_symbol =
-  (letter | symchar) (letter | digit | symchar) + as s
+  (letter | symchar) (letter | digit | symchar) * as s
 let quoted_symbol =
   '|' ((white_space_char | (printable_char # [ '|' '\\' ])) * as s) '|'
 let symbol = simple_symbol | quoted_symbol
