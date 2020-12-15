@@ -13,6 +13,8 @@ else
 OCAMLOPTFLAGS += -g
 endif
 
+PACKAGES = num
+
 all: smt2.cmxa smt2-tool
 
 .SUFFIXES: .ml .mli .mll .mly .cmx .cmo .cmi
@@ -45,7 +47,7 @@ include .depend
 # Build
 
 %.cmi: %.mli
-	$(OCAMLOPT) $(OCAMLOPTFLAGS) -c $<
+	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -c $<
 
 Smt2Lexer.ml: Smt2Lexer.mll
 	$(LEX) $<
@@ -54,13 +56,13 @@ Smt2Parser.ml: Smt2Parser.mly
 	$(YACC) $<
 
 %.cmx: %.ml
-	$(OCAMLOPT) $(OCAMLOPTFLAGS) -c $< -o $@
+	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -c $< -o $@
 
 smt2.cmxa: $(SMT2_SOURCES:.ml=.cmx)
-	$(OCAMLOPT) $(OCAMLOPTFLAGS) -a $^ -o $@
+	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -a $^ -o $@
 
 smt2-tool: smt2.cmxa Smt2Tool.cmx
-	$(OCAMLOPT) $(OCAMLOPTFLAGS) -linkpkg $^ -o $@
+	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -linkpkg $^ -o $@
 
 
 # Install

@@ -1,10 +1,12 @@
+open Big_int
+
 type symbol = string
 type keyword = string
-type numeral = int
+type numeral = big_int
 type decimal = float
 
 let symbol_of_string s = s
-let numeral_of_int n = n
+let numeral_of_int n = big_int_of_int n
 let keyword_of_string s = s
 
 (* Replace newlines with something inocuous: *)
@@ -40,23 +42,37 @@ let print_bool oc b =
   Format.fprintf oc (if b then "true" else "false")
 
 let print_numeral oc n =
-  Format.fprintf oc "%d" n
+  string_of_big_int n |>
+  Format.fprintf oc "%s"
 
 let print_decimal oc f =
   Format.fprintf oc "%f" f
 
-let print_hexadecimal oc n =
-  Format.fprintf oc "#x%x" n
-
-let rec bits_of_int n =
+let rec hexdigits_of_num n =
+  let mask = big_int_of_int 15 in
   let rec loop l n =
-    if n = 0 then List.rev l else
-    let l' = (if n land 1 = 0 then 0 else 1) :: l in
-    loop l' (n lsr 1) in
+    if n = zero_big_int then List.rev l else
+    let l' = int_of_big_int (and_big_int n mask) :: l in
+    loop l' (shift_right_towards_zero_big_int n 4) in
+  loop [] n
+
+let print_hexadecimal oc n =
+  let digits = hexdigits_of_num n in
+  let digits = if digits = [] then [ 0 ] else digits in
+  Format.pp_print_string oc "#x" ;
+  List.iter (fun d ->
+   Format.pp_print_char oc (Char.chr (Char.code '0' + d))
+  ) digits
+
+let rec bits_of_num n =
+  let rec loop l n =
+    if n = zero_big_int then List.rev l else
+    let l' = (if and_big_int n unit_big_int = zero_big_int then 0 else 1) :: l in
+    loop l' (shift_right_towards_zero_big_int n 1) in
   loop [] n
 
 let print_binary oc n =
-  let bits = bits_of_int n in
+  let bits = bits_of_num n in
   let bits = if bits = [] then [ 0 ] else bits in
   Format.pp_print_string oc "#b" ;
   List.iter (fun b ->
@@ -70,17 +86,17 @@ let print_pair p2 oc k v =
     p2 v
 
 type constant =
-  Numeral of numeral | Decimal of decimal | Hexadecimal of int |
-  Binary of int | String of string
+  Numeral of numeral | Decimal of decimal | Hexadecimal of big_int |
+  Binary of big_int | String of string
 
 module Constant = struct
   type t = constant
 
-  let numeral_of_int v = Numeral v
+  let numeral_of_int v = Numeral (numeral_of_int v)
   let decimal_of_int v = Decimal (float_of_int v)
   let decimal_of_float v = Decimal v
 
-  let to_int = function
+  let to_big_int = function
     | Numeral n | Hexadecimal n | Binary n -> n
     | _ -> invalid_arg "Constant.to_int"
 
@@ -112,7 +128,7 @@ module SExpr = struct
     | Comment s -> Format.fprintf oc "@[<h>; %s@]@\n" (strip_newlines s)
 end
 
-type index = NumericIndex of numeral | SymbolicIndex of symbol
+type index = NumericIndex of int | SymbolicIndex of symbol
 type identifier =
     Identifier of symbol
   | IndexedIdentifier of symbol * index list (* non empty *)
@@ -261,11 +277,11 @@ module Term = struct
           print x) ;
         Format.flush_str_formatter () |> failwith
 
-  let rec to_int = function
+  let rec to_big_int = function
     | ConstantTerm c ->
-        Constant.to_int c
+        Constant.to_big_int c
     | Apply ((Identifier "-", None), [ term ]) ->
-        ~- (to_int term)
+        minus_big_int (to_big_int term)
     | x ->
         Format.(fprintf str_formatter "Bad term when expecting integer: %a"
           print x) ;

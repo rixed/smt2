@@ -1,4 +1,5 @@
 %{
+open Big_int
 open Smt2Types
 %}
 
@@ -18,7 +19,7 @@ open Smt2Types
 %token RESET_ASSERTIONS SET_INFO SET_LOGIC SET_OPTION NOT MODEL
 
 %token KwTheories
-%token <int> Numeral Hexadecimal Binary
+%token <Big_int.big_int> Numeral Hexadecimal Binary
 %token <float > Decimal
 %token <string> String
 %token <Smt2Types.Constant.t> SpecConstant
@@ -138,7 +139,7 @@ identifier:
 ;
 
 index:
-  | Numeral { NumericIndex $1 }
+  | Numeral { NumericIndex (int_of_big_int $1) }
   | symbol  { SymbolicIndex $1 }
 ;
 
@@ -348,10 +349,11 @@ b_value:
   | FALSE { false }
 ;
 
+/* attribute conflicts with the first two so list it last: */
 option:
   | Keyword String  { Command.StringOption ($1, $2) }
-  | Keyword b_value { Command.BoolOption ($1, $2) }
   | Keyword Numeral { Command.NumOption ($1, $2) }
+  | Keyword b_value { Command.BoolOption ($1, $2) }
   | attribute       { Command.AttributeOption $1 }
 ;
 
@@ -441,6 +443,7 @@ model_response_list:
   | model_response                     { [ $1 ] }
 ;
 
+/* attribute conflicts with the first two so list it last: */
 info_response:
   | Keyword Numeral { Response.NumResp ($1, $2) }
   | Keyword String  { Response.StringResp ($1, $2) }
