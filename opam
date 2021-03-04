@@ -1,6 +1,6 @@
 opam-version: "2.0"
 name: "smt2"
-version: "0.1.0"
+version: "0.1.1"
 synopsis: "SMT2 manipulation library"
 maintainer: "rixed-opam@happyleptic.org"
 authors: "rixed-opam@happyleptic.org"
