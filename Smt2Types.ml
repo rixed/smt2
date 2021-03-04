@@ -51,7 +51,7 @@ let print_decimal oc f =
 let rec hexdigits_of_num n =
   let mask = big_int_of_int 15 in
   let rec loop l n =
-    if n = zero_big_int then List.rev l else
+    if eq_big_int n zero_big_int then List.rev l else
     let l' = int_of_big_int (and_big_int n mask) :: l in
     loop l' (shift_right_towards_zero_big_int n 4) in
   loop [] n
@@ -66,8 +66,8 @@ let print_hexadecimal oc n =
 
 let rec bits_of_num n =
   let rec loop l n =
-    if n = zero_big_int then List.rev l else
-    let l' = (if and_big_int n unit_big_int = zero_big_int then 0 else 1) :: l in
+    if eq_big_int n zero_big_int then List.rev l else
+    let l' = (if eq_big_int (and_big_int n unit_big_int) zero_big_int then 0 else 1) :: l in
     loop l' (shift_right_towards_zero_big_int n 1) in
   loop [] n
 
