@@ -2,8 +2,10 @@
 LEX = ocamllex
 YACC = ocamlyacc
 OCAMLOPT = ocamlfind ocamlopt
+OCAMLC   = ocamlfind ocamlc
 OCAMLDEP = ocamlfind ocamldep
 OCAMLOPTFLAGS = -annot
+OCAMLCFLAGS = -annot
 bin_dir ?= $(shell opam config var bin)
 
 ifdef NDEBUG
@@ -15,7 +17,7 @@ endif
 
 PACKAGES = num
 
-all: smt2.cmxa smt2-tool
+all: smt2.cmxa smt2.cma smt2-tool
 
 .SUFFIXES: .ml .mli .mll .mly .cmx .cmo .cmi
 
@@ -58,8 +60,14 @@ Smt2Parser.ml: Smt2Parser.mly
 %.cmx: %.ml
 	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -c $< -o $@
 
+%.cmo: %.ml
+	$(OCAMLC) $(OCAMLCFLAGS) -package '$(PACKAGES)' -c $< -o $@
+
 smt2.cmxa: $(SMT2_SOURCES:.ml=.cmx)
 	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -a $^ -o $@
+
+smt2.cma: $(SMT2_SOURCES:.ml=.cmo)
+	$(OCAMLC) $(OCAMLCFLAGS) -package '$(PACKAGES)' -a $^ -o $@
 
 smt2-tool: smt2.cmxa Smt2Tool.cmx
 	$(OCAMLOPT) $(OCAMLOPTFLAGS) -package '$(PACKAGES)' -linkpkg $^ -o $@
@@ -73,7 +81,9 @@ install-lib: \
 		META \
 		$(filter %.cmi, $(SMT2_SOURCES:.ml=.cmi)) \
 		$(filter %.cmx, $(SMT2_SOURCES:.ml=.cmx)) \
+		$(filter %.cmo, $(SMT2_SOURCES:.ml=.cmo)) \
 		smt2.cmxa \
+		smt2.cma \
 		smt2.a
 	@echo '== Installing OCaml libs'
 	ocamlfind install smt2 $^
@@ -110,4 +120,4 @@ clean:
 
 # Also deletes final productions
 cleaner: clean
-	$(RM) smt2-tool smt2.cmxa smt2.a
+	$(RM) smt2-tool smt2.cmxa smt2.cma smt2.a

@@ -1,4 +1,5 @@
 description = "SMT2 manipulation library"
 version = "0.1.1"
 archive(native) = "smt2.cmxa"
+archive(byte) = "smt2.cma"
 requires = "num"

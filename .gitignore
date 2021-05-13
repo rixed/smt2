@@ -1,7 +1,9 @@
 .depend
 *.cmi
 *.cmx
+*.cmo
 *.cmxa
+*.cma
 *.o
 *.a
 *.annot
